@@ -78,26 +78,26 @@ with st.sidebar:
             reporter_col = next((col for col in st.session_state.isidora_report.data.columns 
                                if 'известувач' in str(col).lower()), None)
             if reporter_col:
-                reporter_names = st.session_state.isidora_report.data[reporter_col].dropna().unique()
+                reporter_names = sorted(st.session_state.isidora_report.data[reporter_col].dropna().unique())
                 selected_reporter = st.selectbox(
                     "Известувач",
-                    ["Сите"] + list(reporter_names)
+                    ["Сите"] + reporter_names
                 )
             
             # Филтер за тип на инструмент
             instrument_col = next((col for col in st.session_state.isidora_report.data.columns 
                                  if 'вид' in str(col).lower() and 'х.в.' in str(col).lower()), None)
             if instrument_col:
-                instrument_types = st.session_state.isidora_report.data[instrument_col].dropna().unique()
+                instrument_types = sorted(st.session_state.isidora_report.data[instrument_col].dropna().unique())
                 selected_instrument = st.selectbox(
                     "Тип на инструмент",
-                    ["Сите"] + list(instrument_types)
+                    ["Сите"] + instrument_types
                 )
             
             # Копче за извоз
             if st.button("📥 Извези во Excel"):
                 try:
-                    filtered_data = st.session_state.isidora_report.data
+                    filtered_data = st.session_state.isidora_report.data.copy()
                     if 'date_range' in locals() and date_range and len(date_range) == 2:
                         filtered_data = st.session_state.isidora_report.filter_by_date(
                             pd.Timestamp(date_range[0]),
@@ -120,7 +120,7 @@ with st.sidebar:
 if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_report.data is not None:
     try:
         # Применување на филтри
-        filtered_data = st.session_state.isidora_report.data
+        filtered_data = st.session_state.isidora_report.data.copy()
         
         # Креирање на две колони за визуелизации
         col1, col2 = st.columns(2)
@@ -135,7 +135,7 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
                 if not instrument_counts.empty:
                     fig = px.pie(
                         values=instrument_counts.values,
-                        names=instrument_counts.index,
+                        names=instrument_counts.index.astype(str),
                         title='Дистрибуција на хартии од вредност по тип'
                     )
                     st.plotly_chart(fig, use_container_width=True)
@@ -146,15 +146,29 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
                                if 'известувач' in str(col).lower()), None)
             if reporter_col:
                 st.subheader("📈 Топ известувачи")
-                reporter_counts = filtered_data[reporter_col].value_counts().head(10)
-                if not reporter_counts.empty:
+                # Чистење и подготовка на податоците за известувачи
+                reporter_data = filtered_data[reporter_col].dropna()
+                if not reporter_data.empty:
+                    reporter_counts = reporter_data.value_counts().head(10)
+                    reporter_df = pd.DataFrame({
+                        'Известувач': reporter_counts.index.astype(str),
+                        'Број': reporter_counts.values
+                    })
+                    
                     fig = px.bar(
-                        x=reporter_counts.values,
-                        y=reporter_counts.index,
+                        reporter_df,
+                        x='Број',
+                        y='Известувач',
                         orientation='h',
                         title='Топ 10 известувачи по број на инструменти'
                     )
+                    fig.update_layout(
+                        yaxis={'categoryorder': 'total ascending'},
+                        showlegend=False
+                    )
                     st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Нема податоци за известувачи за приказ")
         
         # Табела со податоци
         st.subheader("📋 Детален преглед на податоци")

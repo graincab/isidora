@@ -24,8 +24,21 @@ def clean_headers(df: pd.DataFrame) -> pd.DataFrame:
         df = df.iloc[header_row + 1:].reset_index(drop=True)
     
     # Отстранување на празни простори и специјални знаци
-    df.columns = df.columns.str.strip()
+    df.columns = df.columns.astype(str).str.strip()
+    
+    # Замена на NaN вредности со описни имиња
+    df.columns = [f'Колона_{i+1}' if pd.isna(col) or col == '' else col 
+                 for i, col in enumerate(df.columns)]
+    
     return df
+
+def safe_str_operation(value: any) -> str:
+    """
+    Безбедно конвертирање на вредност во string.
+    """
+    if pd.isna(value):
+        return ''
+    return str(value).lower()
 
 def filter_data(df: pd.DataFrame, 
                 date_range: Optional[Tuple[str, str]] = None,
@@ -37,7 +50,7 @@ def filter_data(df: pd.DataFrame,
     filtered_df = df.copy()
     
     if date_range:
-        date_cols = [col for col in df.columns if 'датум' in col.lower()]
+        date_cols = [col for col in df.columns if 'датум' in safe_str_operation(col)]
         if date_cols:
             filtered_df = filtered_df[
                 (filtered_df[date_cols[0]] >= date_range[0]) &
@@ -45,12 +58,13 @@ def filter_data(df: pd.DataFrame,
             ]
     
     if reporter:
-        reporter_cols = [col for col in df.columns if 'известувач' in col.lower()]
+        reporter_cols = [col for col in df.columns if 'известувач' in safe_str_operation(col)]
         if reporter_cols:
-            filtered_df = filtered_df[filtered_df[reporter_cols[0]].str.contains(reporter, na=False)]
+            filtered_df = filtered_df[filtered_df[reporter_cols[0]].astype(str).str.contains(reporter, na=False)]
     
     if instrument_type:
-        instrument_cols = [col for col in df.columns if 'вид' in col.lower() and 'х.в.' in col.lower()]
+        instrument_cols = [col for col in df.columns 
+                         if 'вид' in safe_str_operation(col) and 'х.в.' in safe_str_operation(col)]
         if instrument_cols:
             filtered_df = filtered_df[filtered_df[instrument_cols[0]] == instrument_type]
     
@@ -61,16 +75,26 @@ def summarize_data(df: pd.DataFrame) -> Dict:
     Креира сумарна статистика за податоците.
     """
     summary = {
-        'вкупно_записи': len(df),
-        'број_известувачи': df['Матичен број на известувач'].nunique() if 'Матичен број на известувач' in df.columns else 0,
-        'број_инструменти': df['Вид на х.в. (ЕСА2010)'].nunique() if 'Вид на х.в. (ЕСА2010)' in df.columns else 0
+        'вкупно_записи': len(df)
     }
     
+    # Безбедно додавање на статистики само ако постојат соодветните колони
+    if 'Матичен број на известувач' in df.columns:
+        summary['број_известувачи'] = df['Матичен број на известувач'].nunique()
+    
+    if 'Вид на х.в. (ЕСА2010)' in df.columns:
+        summary['број_инструменти'] = df['Вид на х.в. (ЕСА2010)'].nunique()
+    
     # Додавање на агрегации по вредност ако постојат соодветни колони
-    value_cols = [col for col in df.columns if any(term in col.lower() for term in ['вредност', 'износ'])]
+    value_cols = [col for col in df.columns 
+                 if any(term in safe_str_operation(col) for term in ['вредност', 'износ'])]
+    
     for col in value_cols:
-        summary[f'вкупна_{col}'] = df[col].sum()
-        
+        try:
+            summary[f'вкупна_{col}'] = pd.to_numeric(df[col], errors='coerce').sum()
+        except:
+            continue
+    
     return summary
 
 def export_to_excel(df: pd.DataFrame, filename: str) -> None:
@@ -82,7 +106,7 @@ def export_to_excel(df: pd.DataFrame, filename: str) -> None:
     
     # Форматирање на колоните
     for column in df.columns:
-        column_width = max(df[column].astype(str).map(len).max(), len(column))
+        column_width = max(df[column].astype(str).map(len).max(), len(str(column)))
         col_idx = df.columns.get_loc(column)
         writer.sheets['Извештај'].column_dimensions[chr(65 + col_idx)].width = column_width + 2
     
@@ -97,13 +121,16 @@ class IsidoraReport:
         """
         Вчитува податоци од Excel датотека.
         """
-        df = pd.read_excel(excel_file, sheet_name=sheet_name)
-        self.data = clean_headers(df)
-        self.metadata = {
-            'извор': excel_file,
-            'лист': sheet_name,
-            'датум_на_вчитување': pd.Timestamp.now()
-        }
+        try:
+            df = pd.read_excel(excel_file, sheet_name=sheet_name)
+            self.data = clean_headers(df)
+            self.metadata = {
+                'извор': excel_file,
+                'лист': sheet_name,
+                'датум_на_вчитување': pd.Timestamp.now()
+            }
+        except Exception as e:
+            raise Exception(f"Грешка при вчитување на податоците: {str(e)}")
     
     def filter_by_date(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
@@ -124,15 +151,18 @@ class IsidoraReport:
         if 'Вид на х.в. (ЕСА2010)' not in self.data.columns:
             return {}
         
-        summary = self.data.groupby('Вид на х.в. (ЕСА2010)').agg({
-            'Матичен број на известувач': 'nunique',
-            'ISIN': 'count'
-        }).rename(columns={
-            'Матичен број на известувач': 'број_известувачи',
-            'ISIN': 'број_инструменти'
-        })
-        
-        return summary.to_dict('index')
+        try:
+            summary = self.data.groupby('Вид на х.в. (ЕСА2010)').agg({
+                'Матичен број на известувач': 'nunique',
+                'ISIN': 'count'
+            }).rename(columns={
+                'Матичен број на известувач': 'број_известувачи',
+                'ISIN': 'број_инструменти'
+            })
+            
+            return summary.to_dict('index')
+        except:
+            return {}
     
     def export_report(self, filename: str) -> None:
         """

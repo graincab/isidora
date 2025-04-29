@@ -1,211 +1,282 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from utils import IsidoraReport, clean_headers, summarize_data
+from utils import clean_headers, prepare_sostojba_na_hv
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 
-# Конфигурација на страницата
-st.set_page_config(
-    page_title="ИСИДОРА Алатка за Известување",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Increase the file size limit to 1000MB (1GB)
+st.set_page_config(page_title="ISIDORA Reporting Tool", layout="wide")
+st.title("ISIDORA Reporting Tool")
 
-# Наслов и опис
-st.title("ИСИДОРА Алатка за Известување")
-st.markdown("""
-    Оваа алатка овозможува анализа на податоци од ИСИДОРА системот за известување.
-    Моментално поддржува анализа на пакетот ХВ (хартии од вредност).
-""")
-
-# Иницијализација на сесиски променливи
-if 'isidora_report' not in st.session_state:
-    st.session_state.isidora_report = IsidoraReport()
-
-# Страничен панел за контроли
-with st.sidebar:
-    st.header("📊 Контроли")
+def analyze_relationships(df_main, df_reporters, df_securities, df_received):
+    # Analyze relationships and data patterns
+    summary = {}
     
-    # Прикачување на датотека
-    uploaded_file = st.file_uploader(
-        "Прикачете Excel датотека",
-        type=["xlsx"],
-        help="Изберете Excel датотека со ИСИДОРА податоци"
-    )
+    # Check Reporter relationships
+    reporters_in_main = set(df_main['Матичен број на известувач'].unique())
+    reporters_in_list = set(df_reporters['матичен број'].unique())
+    summary['reporters_match'] = len(reporters_in_main.intersection(reporters_in_list))
+    
+    # Analyze securities types
+    securities_types = df_main['Вид на х.в. (ЕСА2010)'].unique()
+    valid_types = df_securities['Вид на ХВ'].unique()
+    summary['securities_types'] = len(set(securities_types).intersection(set(valid_types)))
+    
+    return summary
 
-    if uploaded_file:
-        try:
-            # Вчитување на листови
-            xls = pd.ExcelFile(uploaded_file)
-            sheet_names = xls.sheet_names
-            
-            # Избор на лист
-            selected_sheet = st.selectbox(
-                "Изберете лист за анализа",
-                sheet_names,
-                help="Изберете кој лист од Excel датотеката сакате да го анализирате"
-            )
-            
-            # Вчитување на податоци
-            st.session_state.isidora_report.load_data(uploaded_file, selected_sheet)
-            st.success(f"Успешно вчитани податоци од листот {selected_sheet}")
-            
-            # Филтри
-            st.subheader("🔍 Филтри")
-            
-            # Датумски филтер
-            date_cols = [col for col in st.session_state.isidora_report.data.columns 
-                        if 'датум' in str(col).lower()]
-            if date_cols:
-                try:
-                    date_col = date_cols[0]
-                    min_date = pd.to_datetime(st.session_state.isidora_report.data[date_col].min())
-                    max_date = pd.to_datetime(st.session_state.isidora_report.data[date_col].max())
-                    
-                    date_range = st.date_input(
-                        "Период на известување",
-                        value=(min_date.date(), max_date.date()),
-                        min_value=min_date.date(),
-                        max_value=max_date.date()
-                    )
-                except Exception as e:
-                    st.warning(f"Не може да се постави датумски филтер: {str(e)}")
-                    date_range = None
-            
-            # Филтер за известувач
-            reporter_col = next((col for col in st.session_state.isidora_report.data.columns 
-                               if 'известувач' in str(col).lower()), None)
-            if reporter_col:
-                reporter_names = sorted(st.session_state.isidora_report.data[reporter_col].dropna().unique())
-                selected_reporter = st.selectbox(
-                    "Известувач",
-                    ["Сите"] + reporter_names
-                )
-            
-            # Филтер за тип на инструмент
-            instrument_col = next((col for col in st.session_state.isidora_report.data.columns 
-                                 if 'вид' in str(col).lower() and 'х.в.' in str(col).lower()), None)
-            if instrument_col:
-                instrument_types = sorted(st.session_state.isidora_report.data[instrument_col].dropna().unique())
-                selected_instrument = st.selectbox(
-                    "Тип на инструмент",
-                    ["Сите"] + instrument_types
-                )
-            
-            # Копче за извоз
-            if st.button("📥 Извези во Excel"):
-                try:
-                    filtered_data = st.session_state.isidora_report.data.copy()
-                    if 'date_range' in locals() and date_range and len(date_range) == 2:
-                        filtered_data = st.session_state.isidora_report.filter_by_date(
-                            pd.Timestamp(date_range[0]),
-                            pd.Timestamp(date_range[1])
-                        )
-                    if 'selected_reporter' in locals() and selected_reporter != "Сите":
-                        filtered_data = st.session_state.isidora_report.filter_by_reporter(selected_reporter)
-                    
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    export_filename = f"isidora_извештај_{timestamp}.xlsx"
-                    st.session_state.isidora_report.export_report(export_filename)
-                    st.success(f"Извештајот е зачуван како {export_filename}")
-                except Exception as e:
-                    st.error(f"Грешка при извоз на податоците: {str(e)}")
-            
-        except Exception as e:
-            st.error(f"Грешка при вчитување на податоците: {str(e)}")
-
-# Главен панел за визуелизација
-if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_report.data is not None:
-    try:
-        # Применување на филтри
-        filtered_data = st.session_state.isidora_report.data.copy()
+def load_and_analyze_data(excel_file):
+    # Initialize variables
+    main_data = None
+    reporters = None
+    securities = None
+    received = None
+    
+    # First, let's see what sheets are actually in the file
+    xls = pd.ExcelFile(excel_file)
+    available_sheets = xls.sheet_names
+    st.write("Available sheets in the file:", available_sheets)
+    
+    # Load each sheet if available
+    if "БАЗА ИСИДОРА ХВ" in available_sheets:
+        main_data = pd.read_excel(excel_file, sheet_name="БАЗА ИСИДОРА ХВ", header=5)
+        st.write("Successfully loaded БАЗА ИСИДОРА ХВ")
+    
+    if "листа известувачи" in available_sheets:
+        reporters = pd.read_excel(excel_file, sheet_name="листа известувачи", header=0)
+        st.write("Successfully loaded листа известувачи")
+    
+    if "Вид на ХВ" in available_sheets:
+        securities = pd.read_excel(excel_file, sheet_name="Вид на ХВ", header=0)
+        st.write("Successfully loaded Вид на ХВ")
+    
+    # Fix: Look for sheet name with or without trailing space
+    received_sheet = next((s for s in available_sheets if s.strip() == "Примени податоци"), None)
+    if received_sheet:
+        received = pd.read_excel(excel_file, sheet_name=received_sheet, header=0)
+        st.write(f"Successfully loaded {received_sheet}")
+    
+    # Only analyze relationships if all required sheets are present
+    if all([main_data is not None, reporters is not None, securities is not None, received is not None]):
+        relationships = analyze_relationships(main_data, reporters, securities, received)
         
-        # Креирање на две колони за визуелизации
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Дистрибуција по тип на инструмент
-            instrument_col = next((col for col in filtered_data.columns 
-                                 if 'вид' in str(col).lower() and 'х.в.' in str(col).lower()), None)
-            if instrument_col:
-                st.subheader("📊 Дистрибуција по тип на инструмент")
-                instrument_counts = filtered_data[instrument_col].value_counts()
-                if not instrument_counts.empty:
-                    fig = px.pie(
-                        values=instrument_counts.values,
-                        names=instrument_counts.index.astype(str),
-                        title='Дистрибуција на хартии од вредност по тип'
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # Топ известувачи
-            reporter_col = next((col for col in filtered_data.columns 
-                               if 'известувач' in str(col).lower()), None)
-            if reporter_col:
-                st.subheader("📈 Топ известувачи")
-                # Чистење и подготовка на податоците за известувачи
-                reporter_data = filtered_data[reporter_col].dropna()
-                if not reporter_data.empty:
-                    reporter_counts = reporter_data.value_counts().head(10)
-                    reporter_df = pd.DataFrame({
-                        'Известувач': reporter_counts.index.astype(str),
-                        'Број': reporter_counts.values
-                    })
-                    
-                    fig = px.bar(
-                        reporter_df,
-                        x='Број',
-                        y='Известувач',
-                        orientation='h',
-                        title='Топ 10 известувачи по број на инструменти'
-                    )
-                    fig.update_layout(
-                        yaxis={'categoryorder': 'total ascending'},
-                        showlegend=False
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Нема податоци за известувачи за приказ")
-        
-        # Табела со податоци
-        st.subheader("📋 Детален преглед на податоци")
-        
-        # Избор на колони за приказ
-        all_columns = list(filtered_data.columns)
-        selected_columns = st.multiselect(
-            "Изберете колони за приказ:",
-            all_columns,
-            default=all_columns[:5] if len(all_columns) > 5 else all_columns
+        # Display enriched main data
+        enriched_data = main_data.merge(
+            reporters,
+            left_on='Матичен број на известувач',
+            right_on='матичен број',
+            how='left'
         )
         
-        if selected_columns:
-            st.dataframe(
-                filtered_data[selected_columns],
-                height=400,
-                use_container_width=True
-            )
-        
-        # Сумарна статистика
-        st.subheader("📊 Сумарна статистика")
-        try:
-            summary = summarize_data(filtered_data)
-            
-            # Прикажување на статистиката во три колони
-            summary_col1, summary_col2, summary_col3 = st.columns(3)
-            
-            with summary_col1:
-                st.metric("Вкупно записи", f"{summary.get('вкупно_записи', 0):,}")
-            
-            with summary_col2:
-                st.metric("Број на известувачи", f"{summary.get('број_известувачи', 0):,}")
-            
-            with summary_col3:
-                st.metric("Број на инструменти", f"{summary.get('број_инструменти', 0):,}")
-        except Exception as e:
-            st.error(f"Грешка при пресметување на статистиката: {str(e)}")
+        return enriched_data, relationships
+    else:
+        missing_sheets = []
+        if main_data is None: missing_sheets.append("БАЗА ИСИДОРА ХВ")
+        if reporters is None: missing_sheets.append("листа известувачи")
+        if securities is None: missing_sheets.append("Вид на ХВ")
+        if received is None: missing_sheets.append("Примени податоци")
+        st.error(f"Missing sheets: {', '.join(missing_sheets)}")
+        return None, None
+
+def load_sheet_with_correct_headers(excel_file, sheet_name):
+    if sheet_name == "БАЗА ИСИДОРА ХВ":
+        # Headers are in row 6 (index 5)
+        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=5)
+    elif sheet_name == "Примени податоци":
+        # Headers are in row 1 (index 0)
+        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=0)
+    elif sheet_name in ["Вид на ХВ", "листа известувачи"]:
+        # Headers are in row 1 (index 0)
+        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=0)
+    elif sheet_name == "курсни разлики":
+        # This sheet contains only formulas, load as is
+        df = pd.read_excel(excel_file, sheet_name=sheet_name)
+    else:
+        # Default behavior
+        df = pd.read_excel(excel_file, sheet_name=sheet_name)
+    return df
+
+def analyze_primeni_podatoci(df):
+    st.header("Analysis of Примени податоци")
     
+    # Прв Тест Пакет UI block
+    if st.button("Прв Тест Пакет"):
+        st.subheader("📦 Прв Тест Пакет")
+
+        with st.expander("Состојба на х.в на почеток на период (главнина)"):
+            try:
+                result = prepare_sostojba_na_hv(df)
+                st.write("📜 **Правило:**", result["rule"])
+                st.metric("💰 Износ во денари", f"{result['sum_in_denars']:,} денари")
+                st.write("🏷️ **Вид на износ:**", ", ".join(result["used_types"]))
+            except Exception as e:
+                st.error(f"❌ Error calculating: {str(e)}")
+
+        with st.expander("Нето трансакции"):
+            st.info("⏳ Yet to be programmed")
+
+        with st.expander("Ценовни промени"):
+            st.info("⏳ Yet to be programmed")
+
+        with st.expander("Курсни разлики"):
+            st.info("⏳ Yet to be programmed")
+
+        with st.expander("Останати промени"):
+            st.info("⏳ Yet to be programmed")
+
+        with st.expander("Состојба на х.в на крај на период (главнина)"):
+            st.info("⏳ Yet to be programmed")
+    
+    # First, let's create a sidebar for filters
+    st.sidebar.header("📊 Filters")
+    
+    # Show all columns and let user select which ones to filter
+    all_columns = list(df.columns)
+    selected_columns = st.sidebar.multiselect(
+        "Select columns to filter by:",
+        all_columns,
+        default=[]
+    )
+    
+    # Create dynamic filters based on selected columns
+    filtered_df = df.copy()
+    for column in selected_columns:
+        if pd.api.types.is_datetime64_any_dtype(df[column]):
+            # Date range filter
+            min_date = df[column].min()
+            max_date = df[column].max()
+            date_range = st.sidebar.date_input(
+                f"Filter {column}",
+                value=(min_date, max_date),
+                min_value=min_date,
+                max_value=max_date
+            )
+            if len(date_range) == 2:
+                filtered_df = filtered_df[
+                    (filtered_df[column].dt.date >= date_range[0]) &
+                    (filtered_df[column].dt.date <= date_range[1])
+                ]
+        elif pd.api.types.is_numeric_dtype(df[column]):
+            # Numeric range filter
+            min_val = float(df[column].min())
+            max_val = float(df[column].max())
+            value_range = st.sidebar.slider(
+                f"Filter {column}",
+                min_val, max_val,
+                (min_val, max_val)
+            )
+            filtered_df = filtered_df[
+                (filtered_df[column] >= value_range[0]) &
+                (filtered_df[column] <= value_range[1])
+            ]
+        else:
+            # Categorical filter
+            unique_values = sorted(df[column].unique())
+            selected_values = st.sidebar.multiselect(
+                f"Filter {column}",
+                unique_values,
+                default=list(unique_values)
+            )
+            filtered_df = filtered_df[filtered_df[column].isin(selected_values)]
+    
+    # Search functionality
+    st.sidebar.header("🔍 Search")
+    search_term = st.sidebar.text_input("Search in any column:")
+    if search_term:
+        mask = np.column_stack([filtered_df[col].astype(str).str.contains(search_term, case=False, na=False) 
+                              for col in filtered_df.columns])
+        filtered_df = filtered_df[mask.any(axis=1)]
+    
+    # Show number of filtered results
+    st.sidebar.metric("Filtered Rows", f"{len(filtered_df):,}")
+    
+    # Create two columns for visualizations
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Status Distribution (if status column exists)
+        status_cols = [col for col in filtered_df.columns if 'статус' in col.lower()]
+        if status_cols:
+            status_col = status_cols[0]
+            st.subheader("📊 Status Distribution")
+            status_counts = filtered_df[status_col].value_counts()
+            fig = px.pie(values=status_counts.values, 
+                        names=status_counts.index,
+                        title='Distribution of Submission Status',
+                        color_discrete_sequence=px.colors.qualitative.Set3)
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        # Reporter Activity (if reporter column exists)
+        reporter_cols = [col for col in filtered_df.columns if 'назив' in col.lower()]
+        if reporter_cols:
+            st.subheader("📈 Reporter Activity")
+            reporter_col = reporter_cols[0]
+            reporter_data = filtered_df[reporter_col].value_counts().reset_index()
+            reporter_data.columns = ['Reporter', 'Count']
+            fig = px.bar(reporter_data.head(10), 
+                        x='Count',
+                        y='Reporter',
+                        orientation='h',
+                        title='Top 10 Most Active Reporters')
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # Timeline Analysis (if date column exists)
+    date_cols = [col for col in filtered_df.columns if 'датум' in col.lower()]
+    if date_cols:
+        st.subheader("📅 Submission Timeline")
+        date_col = date_cols[0]
+        timeline = filtered_df.groupby(date_col).size().reset_index(name='Count')
+        fig = px.line(timeline, 
+                     x=date_col, 
+                     y='Count',
+                     title='Submissions Over Time')
+        fig.update_traces(line_color='#2E86C1')
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Data table with sorting and filtering
+    st.subheader("📋 Detailed Data View")
+    
+    # Column selector for table
+    selected_table_columns = st.multiselect(
+        "Select columns to display:",
+        all_columns,
+        default=all_columns[:5]  # Default to first 5 columns
+    )
+    
+    # Show the filtered dataframe
+    if selected_table_columns:
+        st.dataframe(
+            filtered_df[selected_table_columns],
+            height=400,
+            use_container_width=True
+        )
+
+def load_and_display_sheet(excel_file, sheet_name):
+    if sheet_name == "БАЗА ИСИДОРА ХВ":
+        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=5)
+        st.dataframe(df.head(100))
+    elif sheet_name == "Примени податоци ":  # Note the space after податоци
+        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=0)
+        sostojba_result = prepare_sostojba_na_hv(df)
+        st.json(sostojba_result)
+        analyze_primeni_podatoci(df)
+    else:
+        df = pd.read_excel(excel_file, sheet_name=sheet_name, header=0)
+        st.dataframe(df.head(100))
+
+# File uploader
+uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
+if uploaded_file:
+    # Get list of sheets
+    xls = pd.ExcelFile(uploaded_file)
+    sheet_names = xls.sheet_names
+    
+    # Sheet selector
+    selected_sheet = st.selectbox("Select Sheet to Analyze", sheet_names)
+    
+    try:
+        load_and_display_sheet(uploaded_file, selected_sheet)
     except Exception as e:
-        st.error(f"Грешка при прикажување на податоците: {str(e)}")
+        st.error(f"Error loading sheet: {str(e)}")

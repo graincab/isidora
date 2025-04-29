@@ -212,30 +212,34 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
             from utils import prepare_sostojba_na_hv
             if st.button("Прв Тест Пакет"):
                 st.subheader("📦 Прв Тест Пакет")
-
-                with st.expander("Состојба на х.в на почеток на период (главнина)"):
-                    try:
-                        result = prepare_sostojba_na_hv(filtered_data)
-                        st.write("📜 **Правило:**", result["rule"])
-                        st.metric("💰 Износ во денари", f"{result['sum_in_denars']:,} денари")
-                        st.write("🏷️ **Вид на износ:**", ", ".join(result["used_types"]))
-                    except Exception as e:
-                        st.error(f"❌ Error calculating: {str(e)}")
-
-                with st.expander("Нето трансакции"):
-                    st.info("⏳ Yet to be programmed")
-
-                with st.expander("Ценовни промени"):
-                    st.info("⏳ Yet to be programmed")
-
-                with st.expander("Курсни разлики"):
-                    st.info("⏳ Yet to be programmed")
-
-                with st.expander("Останати промени"):
-                    st.info("⏳ Yet to be programmed")
-
-                with st.expander("Состојба на х.в на крај на период (главнина)"):
-                    st.info("⏳ Yet to be programmed")
+                try:
+                    result = prepare_sostojba_na_hv(filtered_data)
+                    table_data = {
+                        "Состојба на х.в на почеток на период (главнина)": [
+                            "Збир на износи со DRVR, DSK, PRM, POBJ",
+                            f"{result['sum_in_denars']:,} денари",
+                            ", ".join(result["used_types"])
+                        ],
+                        "Нето трансакции": ["⏳ Yet"] * 3,
+                        "Ценовни промени": ["⏳ Yet"] * 3,
+                        "Курсни разлики": ["⏳ Yet"] * 3,
+                        "Останати промени": ["⏳ Yet"] * 3,
+                        "Состојба на х.в на крај на период (главнина)": ["⏳ Yet"] * 3
+                    }
+                    df_table = pd.DataFrame(table_data, index=["Rule", "Износ во денари", "Вид на износ"])
+                    st.table(df_table)
+                except Exception as e:
+                    error_table = pd.DataFrame({
+                        col: ["❌ Error"] * 3 for col in [
+                            "Состојба на х.в на почеток на период (главнина)",
+                            "Нето трансакции",
+                            "Ценовни промени",
+                            "Курсни разлики",
+                            "Останати промени",
+                            "Состојба на х.в на крај на период (главнина)"
+                        ]
+                    }, index=["Rule", "Износ во денари", "Вид на износ"])
+                    st.table(error_table)
     
     except Exception as e:
         st.error(f"Грешка при прикажување на податоците: {str(e)}")

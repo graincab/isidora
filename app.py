@@ -45,6 +45,10 @@ if uploaded_file:
             index=sheet_names.index(default_sheet)
         )
         df = load_and_clean_data(uploaded_file, selected_sheet)
+        # --- Normalize column names: remove extra spaces and unify naming ---
+        df.columns = [col.strip().replace('  ', ' ').replace('  ', ' ') for col in df.columns]
+        # --- Debug: Show columns to user ---
+        st.sidebar.write('🛠️ Колони во табелата:', df.columns.tolist())
         data_loaded = True
         st.sidebar.success(f"Успешно вчитани податоци од листот: {selected_sheet}")
     except Exception as e:

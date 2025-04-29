@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from utils import IsidoraReport, clean_headers, summarize_data
+from utils import IsidoraReport, clean_headers, summarize_data, prepare_sostojba_na_hv
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
@@ -23,6 +23,16 @@ st.markdown("""
 # Иницијализација на сесиски променливи
 if 'isidora_report' not in st.session_state:
     st.session_state.isidora_report = IsidoraReport()
+
+# --- Caching for performance ---
+@st.cache_data
+def load_and_clean_data(uploaded_file, selected_sheet):
+    df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+    return clean_headers(df)
+
+@st.cache_data
+def prepare_sostojba_na_hv_cached(df):
+    return prepare_sostojba_na_hv(df)
 
 # Страничен панел за контроли
 with st.sidebar:
@@ -48,8 +58,8 @@ with st.sidebar:
                 help="Изберете кој лист од Excel датотеката сакате да го анализирате"
             )
             
-            # Вчитување на податоци
-            st.session_state.isidora_report.load_data(uploaded_file, selected_sheet)
+            # Вчитување на податоци (cached)
+            st.session_state.isidora_report.data = load_and_clean_data(uploaded_file, selected_sheet)
             st.success(f"Успешно вчитани податоци од листот {selected_sheet}")
             
             # Филтри
@@ -209,15 +219,15 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
 
         # Прв Тест Пакет секција (само за листот 'Примени податоци ')
         if 'selected_sheet' in locals() and selected_sheet.strip() == 'Примени податоци':
-            from utils import prepare_sostojba_na_hv
             if st.button("Прв Тест Пакет"):
                 st.subheader("📦 Прв Тест Пакет (Табела)")
                 try:
-                    result = prepare_sostojba_na_hv(filtered_data)
+                    result = prepare_sostojba_na_hv_cached(filtered_data)
                     calculated_sum = f"{result['sum_in_denars']:,} денари"
                     used_types = ", ".join(result['used_types'])
                 except Exception as e:
                     calculated_sum = used_types = "❌ Error"
+                    result = {"filtered_df": pd.DataFrame()}
                 placeholder = "⏳ Yet"
                 table = pd.DataFrame({
                     "Состојба на х.в на почеток на период (главнина)": [calculated_sum, calculated_sum, used_types],
@@ -228,6 +238,9 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
                     "Состојба на х.в на крај на период (главнина)": [placeholder, placeholder, placeholder],
                 }, index=["Rule", "Износ во денари", "Вид на износ"])
                 st.table(table)
+                # Show only first 100 rows for verification
+                st.subheader("🔎 Филтрирани редови за проверка (DRVR, DSK, PRM, POBJ)")
+                st.dataframe(result["filtered_df"].head(100))
     
     except Exception as e:
         st.error(f"Грешка при прикажување на податоците: {str(e)}")

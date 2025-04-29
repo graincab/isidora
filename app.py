@@ -253,7 +253,12 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
 
                 # Optional: breakdown by type
                 st.subheader("📈 Поделба по Вид на Износ")
-                st.dataframe(result["filtered_df"]["Вид на износ"].value_counts().rename_axis('Вид на износ').reset_index(name='Број на редови'))
+                breakdown = result["filtered_df"].groupby("Вид на износ").agg(
+                    Број_на_редови=("Вид на износ", "count"),
+                    Вкупно_износ_во_денари=("Износ во денари", "sum")
+                ).reset_index()
+                breakdown["Вкупно_износ_во_денари"] = breakdown["Вкупно_износ_во_денари"].map('{:,.0f} денари'.format)
+                st.dataframe(breakdown)
     
     except Exception as e:
         st.error(f"Грешка при прикажување на податоците: {str(e)}")

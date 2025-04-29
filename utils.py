@@ -181,12 +181,6 @@ def prepare_sostojba_na_hv(df_received):
     total_sum = filtered_df["Износ во денари"].sum()
     
     return {
-        "umbrella_header": "Состојба на х.в на почеток на период (главнина)",
-        "rule": (
-            "Состојба од претходен известувачки период (t-1) да се направи збир на износи "
-            "според сите критериуми за линијата, се собираат износи од колона 'Износ во денари' "
-            "за кои во 'Вид на износ' се обележани 'DRVR', 'DSK', 'PRM', 'POBJ'."
-        ),
         "sum_in_denars": total_sum,
         "used_types": valid_types
     }

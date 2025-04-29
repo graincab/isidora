@@ -5,6 +5,7 @@ from utils import IsidoraReport, clean_headers, summarize_data, prepare_sostojba
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import re
 
 # --- Streamlit App Config ---
 st.set_page_config(
@@ -17,6 +18,27 @@ st.set_page_config(
 @st.cache_data
 def load_and_clean_data(uploaded_file, selected_sheet):
     df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+    # --- Robust normalization: lowercase, remove all spaces, unify naming ---
+    def normalize_col(col):
+        return re.sub(r'[^а-яa-z0-9]', '', col.lower().replace(' ', ''))
+    norm_map = {normalize_col(col): col for col in df.columns}
+    # Map for required columns
+    required_norms = {
+        'виднаизнос': None,
+        'износвденари': None
+    }
+    for norm, orig in norm_map.items():
+        if 'виднаизнос' in norm:
+            required_norms['виднаизнос'] = orig
+        if 'износвденари' in norm:
+            required_norms['износвденари'] = orig
+    # Rename columns in df for internal use
+    rename_dict = {}
+    if required_norms['виднаизнос']:
+        rename_dict[required_norms['виднаизнос']] = 'Вид на износ'
+    if required_norms['износвденари']:
+        rename_dict[required_norms['износвденари']] = 'Износ во денари'
+    df = df.rename(columns=rename_dict)
     return clean_headers(df)
 
 # --- Sidebar: Upload and Sheet Selection ---
@@ -45,8 +67,6 @@ if uploaded_file:
             index=sheet_names.index(default_sheet)
         )
         df = load_and_clean_data(uploaded_file, selected_sheet)
-        # --- Normalize column names: remove extra spaces and unify naming ---
-        df.columns = [col.strip().replace('  ', ' ').replace('  ', ' ') for col in df.columns]
         # --- Debug: Show columns to user ---
         st.sidebar.write('🛠️ Колони во табелата:', df.columns.tolist())
         data_loaded = True

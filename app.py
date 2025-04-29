@@ -217,18 +217,22 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
         except Exception as e:
             st.error(f"Грешка при пресметување на статистиката: {str(e)}")
 
-        # Прв Тест Пакет секција (само за листот 'Примени податоци ')
+        # Прв Тест Пакет секција (само за листот 'Примени податоци')
         if 'selected_sheet' in locals() and selected_sheet.strip() == 'Примени податоци':
             if st.button("Прв Тест Пакет"):
                 st.subheader("📦 Прв Тест Пакет (Табела)")
+
                 try:
-                    result = prepare_sostojba_na_hv_cached(filtered_data)
+                    result = prepare_sostojba_na_hv(filtered_data)
                     calculated_sum = f"{result['sum_in_denars']:,} денари"
                     used_types = ", ".join(result['used_types'])
                 except Exception as e:
                     calculated_sum = used_types = "❌ Error"
                     result = {"filtered_df": pd.DataFrame()}
+
                 placeholder = "⏳ Yet"
+
+                # Build the main table
                 table = pd.DataFrame({
                     "Состојба на х.в на почеток на период (главнина)": [calculated_sum, calculated_sum, used_types],
                     "Нето трансакции": [placeholder, placeholder, placeholder],
@@ -237,10 +241,19 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
                     "Останати промени": [placeholder, placeholder, placeholder],
                     "Состојба на х.в на крај на период (главнина)": [placeholder, placeholder, placeholder],
                 }, index=["Rule", "Износ во денари", "Вид на износ"])
+
                 st.table(table)
-                # Show only first 100 rows for verification
+
+                # Verification table: Show filtered rows
                 st.subheader("🔎 Филтрирани редови за проверка (DRVR, DSK, PRM, POBJ)")
-                st.dataframe(result["filtered_df"].head(100))
+                st.dataframe(result["filtered_df"])
+
+                # Optional: add a count sanity check
+                st.success(f"✅ Филтрирани {len(result['filtered_df'])} редови вкупно за пресметка.")
+
+                # Optional: breakdown by type
+                st.subheader("📈 Поделба по Вид на Износ")
+                st.dataframe(result["filtered_df"]["Вид на износ"].value_counts().rename_axis('Вид на износ').reset_index(name='Број на редови'))
     
     except Exception as e:
         st.error(f"Грешка при прикажување на податоците: {str(e)}")

@@ -172,6 +172,10 @@ class IsidoraReport:
             export_to_excel(self.data, filename)
 
 def prepare_sostojba_na_hv(df_received):
+    """
+    Prepares the correct sum for 'Состојба на х.в на почеток на период (главнина)',
+    filtering strictly Вид на износ as DRVR, DSK, PRM, POBJ.
+    """
     required_cols = ["Вид на износ", "Износ во денари"]
     if not all(col in df_received.columns for col in required_cols):
         raise ValueError(f"Missing required columns: {required_cols}")
@@ -189,5 +193,5 @@ def prepare_sostojba_na_hv(df_received):
     return {
         "sum_in_denars": total_sum,
         "used_types": valid_types,
-        "filtered_df": filtered_df
+        "filtered_df": filtered_df  # Return filtered table for verification
     }

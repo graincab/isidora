@@ -253,7 +253,20 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
 
                 # Optional: breakdown by type
                 st.subheader("📈 Поделба по Вид на Износ")
-                st.dataframe(result["filtered_df"]["Вид на износ"].value_counts().rename_axis('Вид на износ').reset_index(name='Број на редови'))
+                breakdown = result["filtered_df"].groupby("Вид на износ").agg(
+                    Број_на_редови=("Вид на износ", "count"),
+                    Вкупно_износ_во_денари=("Износ во денари", "sum")
+                ).reset_index()
+                breakdown["Вкупно_износ_во_денари"] = breakdown["Вкупно_износ_во_денари"].map('{:,.0f} денари'.format)
+                st.dataframe(breakdown)
+
+                # Debug section for DRVR sum discrepancy
+                drvr_df = result["filtered_df"][result["filtered_df"]["Вид на износ"] == "DRVR"]
+                st.subheader("🐞 DRVR Debugging")
+                st.write("Non-numeric or NaN rows in DRVR:", drvr_df[drvr_df["Износ во денари"].isna()])
+                st.write("Sample DRVR values:", drvr_df["Износ во денари"].head(20))
+                st.write("DRVR min/max:", drvr_df["Износ во денари"].min(), drvr_df["Износ во денари"].max())
+                st.write("DRVR duplicates:", drvr_df.duplicated().sum())
     
     except Exception as e:
         st.error(f"Грешка при прикажување на податоците: {str(e)}")

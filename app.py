@@ -18,6 +18,7 @@ st.set_page_config(
 @st.cache_data
 def load_and_clean_data(uploaded_file, selected_sheet):
     df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+    df = clean_headers(df)
     # --- Robust normalization: lowercase, remove all spaces, unify naming ---
     def normalize_col(col):
         return re.sub(r'[^а-яa-z0-9]', '', col.lower().replace(' ', ''))
@@ -39,7 +40,7 @@ def load_and_clean_data(uploaded_file, selected_sheet):
     if required_norms['износвденари']:
         rename_dict[required_norms['износвденари']] = 'Износ во денари'
     df = df.rename(columns=rename_dict)
-    return clean_headers(df)
+    return df
 
 # --- Sidebar: Upload and Sheet Selection ---
 st.sidebar.header("📊 Податоци")
@@ -67,7 +68,7 @@ if uploaded_file:
             index=sheet_names.index(default_sheet)
         )
         df = load_and_clean_data(uploaded_file, selected_sheet)
-        # --- Debug: Show columns to user ---
+        # --- Debug: Show columns to user (after all cleaning) ---
         st.sidebar.write('🛠️ Колони во табелата:', df.columns.tolist())
         data_loaded = True
         st.sidebar.success(f"Успешно вчитани податоци од листот: {selected_sheet}")

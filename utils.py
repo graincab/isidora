@@ -175,11 +175,15 @@ def prepare_sostojba_na_hv(df_received):
     required_cols = ["Вид на износ", "Износ во денари"]
     if not all(col in df_received.columns for col in required_cols):
         raise ValueError(f"Missing required columns: {required_cols}")
-    
+
     valid_types = ["DRVR", "DSK", "PRM", "POBJ"]
-    filtered_df = df_received[df_received["Вид на износ"].isin(valid_types)]
+    # Clean up possible whitespace/case issues
+    df = df_received.copy()
+    df["Вид на износ"] = df["Вид на износ"].astype(str).str.strip().str.upper()
+    df["Износ во денари"] = pd.to_numeric(df["Износ во денари"], errors="coerce")
+    filtered_df = df[df["Вид на износ"].isin(valid_types)]
     total_sum = filtered_df["Износ во денари"].sum()
-    
+
     return {
         "sum_in_denars": total_sum,
         "used_types": valid_types

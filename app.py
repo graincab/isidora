@@ -68,8 +68,6 @@ if uploaded_file:
             index=sheet_names.index(default_sheet)
         )
         df = load_and_clean_data(uploaded_file, selected_sheet)
-        # --- Debug: Show columns to user (after all cleaning) ---
-        st.sidebar.write('🛠️ Колони во табелата:', df.columns.tolist())
         data_loaded = True
         st.sidebar.success(f"Успешно вчитани податоци од листот: {selected_sheet}")
     except Exception as e:
@@ -93,7 +91,8 @@ if selected_sheet.strip().lower() != "примени податоци":
     st.info("За напредна анализа, изберете 'Примени податоци '")
     st.stop()
 
-# --- Filters for 'Примени податоци ' ---
+# --- Filters and Table for 'Прв Голем Пакет' ---
+st.header("Прв Голем Пакет")
 with st.expander("🔍 Филтри", expanded=True):
     # Date filter
     date_cols = [col for col in df.columns if 'датум' in str(col).lower()]
@@ -130,6 +129,13 @@ with st.expander("🔍 Филтри", expanded=True):
             "Тип на инструмент",
             ["Сите"] + instrument_types
         )
+    # Paket filter
+    paket_col = next((col for col in df.columns if 'пакет' in str(col).lower()), None)
+    paket_types = sorted(df[paket_col].dropna().unique())
+    selected_paket = st.multiselect("Пакет (избери еден или повеќе)", paket_types)
+    # Средства/Обврска (A/L) rule filter
+    sredstva_options = ["A", "L"]
+    selected_sredstva = st.multiselect("Средства/Обврска (A/L)", sredstva_options)
 
 # --- Apply filters ---
 filtered_df = df.copy()
@@ -140,93 +146,37 @@ if selected_reporter and selected_reporter != "Сите" and reporter_col:
     filtered_df = filtered_df[filtered_df[reporter_col] == selected_reporter]
 if selected_instrument and selected_instrument != "Сите" and instrument_col:
     filtered_df = filtered_df[filtered_df[instrument_col] == selected_instrument]
+if selected_paket:
+    filtered_df = filtered_df[filtered_df[paket_col].isin(selected_paket)]
+if selected_sredstva:
+    filtered_df = filtered_df[
+        filtered_df["Позиција"].astype(str).apply(
+            lambda x: any(letter in x for letter in selected_sredstva)
+        )
+    ]
 
-# --- Tabs for Dashboard ---
-tab_summary, tab_charts, tab_table, tab_debug = st.tabs([
-    "📊 Summary", "📈 Charts", "📋 Table", "🐞 Debug"
-])
+# --- Код (A/L) logic ---
+def extract_code_from_position(pos):
+    codes = []
+    if pd.notna(pos):
+        if "A" in str(pos):
+            codes.append("A")
+        if "L" in str(pos):
+            codes.append("L")
+    return ", ".join(codes) if codes else "-"
+if "Позиција" in filtered_df.columns:
+    filtered_df["Код (A/L)"] = filtered_df["Позиција"].apply(extract_code_from_position)
 
-with tab_summary:
-    st.subheader("📊 Клучни Метрики")
-    try:
-        result = prepare_sostojba_na_hv(filtered_df)
-        sum_in_denars = int(result["sum_in_denars"])
-        filtered_count = len(result["filtered_df"])
-        st.metric("💰 Вкупен Износ (денари)", f"{sum_in_denars}")
-        st.metric("📄 Број на Филтрирани Редови", f"{filtered_count}")
-    except Exception as e:
-        st.error(f"Грешка при пресметка: {str(e)}")
+# --- Show the new clean table ---
+st.subheader("📋 Табела: Прв Голем Пакет")
 
-with tab_charts:
-    st.subheader("📈 Визуелизации")
-    try:
-        # Animated horizontal bar chart by 'Вид на износ'
-        if "Вид на износ" in filtered_df.columns and "Износ во денари" in filtered_df.columns:
-            chart_df = filtered_df.copy()
-            chart_df["Износ во денари"] = pd.to_numeric(chart_df["Износ во денари"], errors="coerce")
-            chart_df = chart_df[chart_df["Износ во денари"].notna()]
-            fig = px.bar(
-                chart_df,
-                x="Износ во денари",
-                y="Вид на износ",
-                orientation="h",
-                color="Вид на износ",
-                color_discrete_sequence=px.colors.qualitative.Safe,
-                title="Анимиран Хоризонтален Бар Чарт",
-                animation_frame=None
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        # Pie chart by instrument type
-        if instrument_col:
-            inst_counts = filtered_df[instrument_col].value_counts()
-            if not inst_counts.empty:
-                fig2 = px.pie(
-                    values=inst_counts.values,
-                    names=inst_counts.index.astype(str),
-                    title='Дистрибуција на хартии од вредност по тип'
-                )
-                st.plotly_chart(fig2, use_container_width=True)
-    except Exception as e:
-        st.error(f"Грешка при визуелизација: {str(e)}")
+# Show active filters as hashtags
+active_filters = []
+if selected_paket:
+    active_filters += [f"#{val}" for val in selected_paket]
+if selected_sredstva:
+    active_filters += [f"#{val}" for val in selected_sredstva]
+if active_filters:
+    st.markdown("**Активни филтри:** " + " ".join(active_filters))
 
-with tab_table:
-    st.subheader("📋 Преглед на Прв Тест Пакет")
-    try:
-        result = prepare_sostojba_na_hv(filtered_df)
-        calculated_sum = f"{result['sum_in_denars']} денари"
-        used_types = ", ".join(result['used_types'])
-        placeholder = "⏳ Yet"
-        table = pd.DataFrame({
-            "Состојба на х.в на почеток на период (главнина)": [calculated_sum, calculated_sum, used_types],
-            "Нето трансакции": [placeholder, placeholder, placeholder],
-            "Ценовни промени": [placeholder, placeholder, placeholder],
-            "Курсни разлики": [placeholder, placeholder, placeholder],
-            "Останати промени": [placeholder, placeholder, placeholder],
-            "Состојба на х.в на крај на период (главнина)": [placeholder, placeholder, placeholder],
-        }, index=["Rule", "Износ во денари", "Вид на износ"])
-        st.table(table)
-        st.subheader("🔎 Филтрирани редови за проверка (DRVR, DSK, PRM, POBJ)")
-        st.dataframe(result["filtered_df"], use_container_width=True, height=400)
-        st.success(f"✅ Филтрирани {len(result['filtered_df'])} редови вкупно за пресметка.")
-        # Breakdown by type
-        st.subheader("📈 Поделба по Вид на Износ")
-        breakdown = result["filtered_df"].groupby("Вид на износ").agg(
-            Број_на_редови=("Вид на износ", "count"),
-            Вкупно_износ_во_денари=("Износ во денари", "sum")
-        ).reset_index()
-        breakdown["Вкупно_износ_во_денари"] = breakdown["Вкупно_износ_во_денари"].map('{:,.0f} денари'.format)
-        st.dataframe(breakdown, use_container_width=True)
-    except Exception as e:
-        st.error(f"Грешка при табеларен приказ: {str(e)}")
-
-with tab_debug:
-    st.subheader("🐞 DRVR Debugging")
-    try:
-        result = prepare_sostojba_na_hv(filtered_df)
-        drvr_df = result["filtered_df"][result["filtered_df"]["Вид на износ"] == "DRVR"]
-        st.write("Non-numeric or NaN rows in DRVR:", drvr_df[drvr_df["Износ во денари"].isna()])
-        st.write("Sample DRVR values:", drvr_df["Износ во денари"].head(20))
-        st.write("DRVR min/max:", drvr_df["Износ во денари"].min(), drvr_df["Износ во денари"].max())
-        st.write("DRVR duplicates:", drvr_df.duplicated().sum())
-    except Exception as e:
-        st.error(f"Грешка при DRVR debugging: {str(e)}")
+st.dataframe(filtered_df, use_container_width=True, height=600)

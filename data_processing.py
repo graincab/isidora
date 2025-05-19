@@ -7,7 +7,11 @@ import numpy as np
 REQUIRED_COLUMNS = [
     'Известувач', 'Вид на износ', 'Износ во денари', 'Пакет',
     'Извештаен датум', 'Позиција', 'Идентификатор на хартија од вредност',
-    'Алфанумеричка ознака на хартија од вредност', 'Котација'
+    'Алфанумеричка ознака на хартија од вредност', 'Котација',
+    'Тип на договорна страна',
+    'Земја',
+    'Сектор',
+    'Идентификациски код на договорна страна'
 ]
 
 def get_sql_connection() -> pyodbc.Connection:
@@ -83,6 +87,12 @@ def process_first_packet(excel_file) -> pd.DataFrame:
         company_df['Matbr_stat'] = pd.to_numeric(company_df['Matbr_stat'], errors='coerce').fillna(0).astype(int)
         company_mapping = dict(zip(company_df['Matbr_stat'], company_df['Poln_naziv_DO']))
         
+        # Load sector mapping from TblSektor
+        sektor_df = pd.read_sql('SELECT [Matbr], [Sektor] FROM [dbo].[TblSektor]', conn)
+        sektor_df['Matbr'] = pd.to_numeric(sektor_df['Matbr'], errors='coerce').fillna(0).astype(int)
+        sektor_mapping = dict(zip(sektor_df['Matbr'], sektor_df['Sektor']))
+        conn.close()
+        
         # Apply mappings
         df['Матичен број на известувач'] = df['Известувач'].map(opis_to_maticen)
         df['Назив на договорна страна'] = df['Матичен број на известувач'].map(company_mapping)
@@ -112,6 +122,28 @@ def process_first_packet(excel_file) -> pd.DataFrame:
         if 'Пакет' in df.columns:
             df = df[df['Пакет'].isin(['PHoV', 'AHoV'])]
         
+        # Add new column for Тип на договорна страна (R/N rule)
+        def map_contract_type(val):
+            if str(val).strip().upper() in ['RL', 'RI', 'RS']:
+                return 'R'
+            elif str(val).strip().upper() in ['NL', 'NI', 'NS']:
+                return 'N'
+            else:
+                return ''
+        df['Тип на договорна страна (R/N)'] = df['Тип на договорна страна'].apply(map_contract_type)
+
+        # Add new column for Држава на издавач на х.в. (договорна страна)
+        df['Држава на издавач на х.в. (договорна страна)'] = df['Земја']
+
+        # Add new column for Институционален сектор на договорна страна
+        def get_institutional_sector(row):
+            ident_code = row.get('Идентификациски код на договорна страна')
+            if pd.notna(ident_code) and str(ident_code).isdigit() and int(ident_code) in sektor_mapping:
+                return sektor_mapping[int(ident_code)]
+            else:
+                return ''
+        df['Институционален сектор на договорна страна'] = df.apply(get_institutional_sector, axis=1)
+
         return df
         
     except Exception as e:

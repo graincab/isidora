@@ -10,12 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- Helper: Simple initial load ---
-@st.cache_data
-def load_data(uploaded_file, selected_sheet):
-    return pd.read_excel(uploaded_file, sheet_name=selected_sheet)
-
-# --- Sidebar: Upload and Sheet Selection ---
+# --- Sidebar: File Upload and Sheet Selection Only ---
 st.sidebar.header("📊 Податоци")
 
 uploaded_file = st.sidebar.file_uploader(
@@ -39,7 +34,7 @@ if uploaded_file:
             sheet_names,
             index=sheet_names.index(default_sheet)
         )
-        df = load_data(uploaded_file, selected_sheet)
+        df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
         data_loaded = True
         st.sidebar.success(f"Успешно вчитани податоци од листот: {selected_sheet}")
     except Exception as e:
@@ -63,16 +58,25 @@ if selected_sheet.strip().lower() != "примени податоци":
     st.info("За напредна анализа, изберете 'Примени податоци '")
     st.stop()
 
-# Show raw data initially
-st.subheader("📋 Податоци")
-st.dataframe(df, use_container_width=True, height=400)
-
-# --- First Packet Button ---
-if st.button("First Packet"):
+# --- First Packet: Show by default ---
+with st.spinner("Обработка на податоци..."):
     try:
         processed_df = process_first_packet(uploaded_file)
-        if processed_df is not None:
+        if processed_df is not None and not processed_df.empty:
             st.subheader("📋 First Packet")
             st.dataframe(processed_df, use_container_width=True, height=600)
+            # Download button
+            csv = processed_df.to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                label="⬇️ Преземи како CSV",
+                data=csv,
+                file_name="first_packet.csv",
+                mime="text/csv"
+            )
     except Exception as e:
         st.error(f"Error processing First Packet: {str(e)}")
+
+# --- Button to show all columns from the original Excel sheet ---
+if st.button("📋 Прикажи ги сите колони (оригинални податоци)"):
+    st.subheader("📋 Оригинални податоци (сите колони)")
+    st.dataframe(df, use_container_width=True, height=600)

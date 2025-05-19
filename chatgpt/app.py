@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from utils import IsidoraReport, clean_headers, summarize_data, prepare_sostojba_na_hv
-import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # Конфигурација на страницата
@@ -148,7 +146,6 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
                         names=instrument_counts.index.astype(str),
                         title='Дистрибуција на хартии од вредност по тип'
                     )
-                    st.plotly_chart(fig, use_container_width=True)
         
         with col2:
             # Топ известувачи
@@ -176,9 +173,6 @@ if hasattr(st.session_state, 'isidora_report') and st.session_state.isidora_repo
                         yaxis={'categoryorder': 'total ascending'},
                         showlegend=False
                     )
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Нема податоци за известувачи за приказ")
         
         # Табела со податоци
         st.subheader("📋 Детален преглед на податоци")
